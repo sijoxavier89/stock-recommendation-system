@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from .routes import router as api_router
+from app.routes import recommendation  # add this
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
-    app = FastAPI(title="Stock Recommendation API")
+    app = FastAPI(title="Stock Recommendation System")
     app.include_router(api_router, prefix="/api")
+    app.include_router(recommendation.router, prefix="/api", tags=["recommendation"])
     return app
 
 
