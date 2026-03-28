@@ -2,30 +2,21 @@
 Vector Store Service
 Manages ChromaDB for storing and retrieving document embeddings.
 """
+import os
+# Disable chromadb telemetry to avoid PostHog compatibility error
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+
+import chromadb
+from chromadb.config import Settings
 from typing import List, Dict, Optional, Any
 import numpy as np
 import logging
 from pathlib import Path
 import json
-from ..core.config import CHROMA_DB_DIR
-
-# Use CHROMA_DB_DIR as the persist directory for chromadb
-PERSIST_DIRECTORY = CHROMA_DB_DIR
-
-# Example chromadb client initialization (adjust to your existing code)
-try:
-    import chromadb
-    from chromadb.config import Settings
-    _CHROMA_CLIENT = chromadb.Client(Settings(chroma_db_impl="duckdb+parquet", persist_directory=str(PERSIST_DIRECTORY)))
-except Exception:
-    _CHROMA_CLIENT = None
-    # existing code should handle missing client gracefully
+import hashlib
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Use CHROMA_DB_DIR as the persist directory for chromadb
-PERSIST_DIRECTORY = CHROMA_DB_DIR
 
 
 class VectorStore:
@@ -55,7 +46,7 @@ class VectorStore:
     
     def __init__(
         self,
-        persist_directory: str = None,
+        persist_directory: str = "./chroma_db",
         collection_name: str = "annual_reports"
     ):
         """
@@ -65,8 +56,7 @@ class VectorStore:
             persist_directory: Where to store the database
             collection_name: Name of the collection to use
         """
-        # Use provided directory or fall back to the configured PERSIST_DIRECTORY
-        self.persist_directory = Path(persist_directory or str(PERSIST_DIRECTORY))
+        self.persist_directory = Path(persist_directory)
         self.persist_directory.mkdir(parents=True, exist_ok=True)
         
         # Initialize ChromaDB client
@@ -162,13 +152,21 @@ class VectorStore:
     def _generate_id(self, chunk: Dict, index: int) -> str:
         """
         Generate unique ID for a chunk.
-        Format: {ticker}_{year}_{section}_{chunk_index}
+        Format: {ticker}_{year}_{section_type}_{section_title_hash}_{chunk_index}
+        
+        The section_title is hashed to ensure uniqueness across different
+        sections with the same section_type, preventing duplicate ID errors.
         """
         metadata = chunk["metadata"]
+        section_title = metadata.get('section_title', 'unknown')
+        # Create a short hash of the section title for uniqueness
+        title_hash = hashlib.md5(section_title.encode()).hexdigest()[:8]
+        
         return (
             f"{metadata['ticker']}_"
             f"{metadata['year']}_"
             f"{metadata['section_type']}_"
+            f"{title_hash}_"
             f"{metadata.get('chunk_index', index)}"
         )
     
@@ -240,12 +238,19 @@ class VectorStore:
         """
         Search within a specific company's documents.
         """
-        where = {"ticker": ticker}
+        # Build where clause with $and operator
+        conditions = [{"ticker": {"$eq": ticker}}]
         
         if year:
-            where["year"] = year
+            conditions.append({"year": {"$eq": year}})
         if section_type:
-            where["section_type"] = section_type
+            conditions.append({"section_type": {"$eq": section_type}})
+        
+        # If only one condition, use it directly; otherwise use $and
+        if len(conditions) == 1:
+            where = conditions[0]
+        else:
+            where = {"$and": conditions}
         
         return self.search(
             query_embedding=query_embedding,
@@ -290,7 +295,7 @@ class VectorStore:
         Get all years available for a specific company.
         """
         results = self.collection.get(
-            where={"ticker": ticker},
+            where={"ticker": {"$eq": ticker}},
             include=["metadatas"]
         )
         
@@ -308,9 +313,14 @@ class VectorStore:
         Returns number of documents deleted.
         """
         # Get IDs to delete
+        # ChromaDB requires $and operator for multiple conditions
         results = self.collection.get(
-            where={"ticker": ticker, "year": year},
-            include=["ids"]
+            where={
+                "$and": [
+                    {"ticker": {"$eq": ticker}},
+                    {"year": {"$eq": year}}
+                ]
+            }
         )
         
         ids_to_delete = results["ids"]

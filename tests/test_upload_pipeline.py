@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from backend.app.main import app
+from app.main import app
 
 
 @pytest.mark.asyncio
@@ -17,8 +17,8 @@ async def test_upload_triggers_pipeline(tmp_path, monkeypatch):
 
     # Monkeypatch the pipeline singleton to a simple mock object
     mock_pipeline = SimpleNamespace(ingest_pdf=Mock())
-    import backend.app.services as services
-    import backend.app.routes.upload as upload_mod
+    import app.services as services
+    import app.routes.upload as upload_mod
     # patch both the services singleton and the already-imported symbol in the upload module
     monkeypatch.setattr(services, "pipeline", mock_pipeline)
     monkeypatch.setattr(upload_mod, "pipeline", mock_pipeline)

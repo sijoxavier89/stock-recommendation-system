@@ -192,11 +192,11 @@ class PDFProcessor:
         self.sections: List[ReportSection] = []
     
     def process_pdf(
-        self,
-        pdf_path: Path,
-        company_name: str,
-        ticker: str,
-        year: int
+    self,
+    pdf_path: Path,
+    ticker: str,
+    year: int,
+    company_name: str = "Unknown"
     ) -> Dict:
         """
         Main processing pipeline for a PDF annual report.
@@ -259,14 +259,14 @@ class PDFProcessor:
                 sections.append(self.current_section)
         
         return {
-            "sections": sections,
-            "metadata": {
-                "company_name": company_name,
-                "ticker": ticker,
-                "year": year,
-                "total_pages": total_pages,
-                "file_path": str(pdf_path),
-            },
+        "sections": sections,
+        "metadata": {
+        "company_name": company_name,  # Add this line
+        "ticker": ticker,
+        "year": year,
+        "total_pages": total_pages,
+        "file_path": str(pdf_path),
+         },
             "raw_text": "\n\n".join(all_text),
             "metrics": all_metrics,
         }
@@ -311,7 +311,9 @@ class PDFProcessor:
                         value = float(value_str)
                         
                         # Determine unit multiplier
-                        unit = match.group(2).lower() if len(match.groups()) > 1 else ""
+                        unit = ""
+                        if len(match.groups()) > 1 and match.group(2):
+                           unit = match.group(2).lower()
                         if unit in ["billion", "b"]:
                             value *= 1_000_000_000
                             unit = "USD"

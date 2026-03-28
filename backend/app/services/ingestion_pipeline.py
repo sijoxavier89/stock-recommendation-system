@@ -6,11 +6,25 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import logging
 from datetime import datetime
+import sys
 
-# Import our services (use relative imports inside the services package)
-from .pdf_processor import PDFProcessor
-from .embedding_service import EmbeddingService
-from .vector_store import VectorStore
+# Handle both relative imports (when run as module) and absolute imports (when run directly)
+try:
+    from .pdf_processor import PDFProcessor
+    from .embedding_service import EmbeddingService
+    from .vector_store import VectorStore
+except ImportError:
+    # If relative imports fail, try absolute imports
+    import os
+    # Add parent directory to path
+    current_dir = Path(__file__).parent
+    backend_dir = current_dir.parent.parent
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
+    
+    from app.services.pdf_processor import PDFProcessor
+    from app.services.embedding_service import EmbeddingService
+    from app.services.vector_store import VectorStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,9 +90,9 @@ class IngestionPipeline:
     def ingest_pdf(
         self,
         pdf_path: Path,
-        company_name: str,
         ticker: str,
         year: int,
+        company_name: Optional[str] = None,
         chunk_size: int = 500,
         chunk_overlap: int = 50,
         replace_existing: bool = False
@@ -88,9 +102,9 @@ class IngestionPipeline:
         
         Args:
             pdf_path: Path to the PDF file
-            company_name: Full company name (e.g., "Apple Inc.")
             ticker: Stock ticker (e.g., "AAPL")
             year: Fiscal year
+            company_name: Full company name (e.g., "Apple Inc."). If None, will be inferred from ticker.
             chunk_size: Target size for text chunks (in tokens)
             chunk_overlap: Overlap between chunks (in tokens)
             replace_existing: If True, delete existing data for this company/year
@@ -119,13 +133,15 @@ class IngestionPipeline:
             
             # Step 2: Process PDF - Extract text and structure
             logger.info("Step 1/4: Processing PDF...")
+            if company_name is None:
+                company_name = self._ticker_to_company_name(ticker)
+
             processed_data = self.pdf_processor.process_pdf(
                 pdf_path=pdf_path,
-                company_name=company_name,
                 ticker=ticker,
-                year=year
+                year=year,
+                company_name=company_name
             )
-            
             logger.info(f"  Extracted {len(processed_data['sections'])} sections")
             logger.info(f"  Found {len(processed_data['metrics'])} financial metrics")
             
@@ -299,19 +315,47 @@ class IngestionPipeline:
 
 # Example usage and testing
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Ingest annual reports into vector store")
+    parser.add_argument(
+        "--pdf",
+        type=str,
+        help="Path to a single PDF file to ingest"
+    )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        help="Company ticker symbol (required with --pdf)"
+    )
+    parser.add_argument(
+        "--company",
+        type=str,
+        help="Company name (required with --pdf)"
+    )
+    parser.add_argument(
+        "--year",
+        type=int,
+        help="Fiscal year (required with --pdf)"
+    )
+    parser.add_argument(
+        "--directory",
+        type=str,
+        default="./data/annual_reports",
+        help="Directory containing PDFs (default: ./data/annual_reports)"
+    )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Replace existing data for the same company/year"
+    )
+    
+    args = parser.parse_args()
+    
     # Initialize services
-    from ..core.config import CHROMA_DB_DIR, ANNUAL_REPORTS_DIR
-
-    vector_store = VectorStore(
-        persist_directory=str(CHROMA_DB_DIR),
-        collection_name="annual_reports"
-    )
-    
-    embedding_service = EmbeddingService(
-        model_name="all-MiniLM-L6-v2",
-        device="cpu"
-    )
-    
+    print("Initializing services...")
+    vector_store = VectorStore()
+    embedding_service = EmbeddingService()
     pdf_processor = PDFProcessor()
     
     # Create pipeline
@@ -321,32 +365,37 @@ if __name__ == "__main__":
         pdf_processor=pdf_processor
     )
     
-    # Example 1: Ingest a single PDF
-    result = pipeline.ingest_pdf(
-        pdf_path=ANNUAL_REPORTS_DIR / "aapl" / "2023.pdf",
-        company_name="Apple Inc.",
-        ticker="AAPL",
-        year=2023,
-        chunk_size=500,
-        chunk_overlap=50,
-        replace_existing=False
-    )
+    # Single PDF or directory ingestion
+    if args.pdf:
+        # Single PDF mode
+        if not all([args.ticker, args.company, args.year]):
+            print("Error: --ticker, --company, and --year are required with --pdf")
+            sys.exit(1)
+        
+        result = pipeline.ingest_pdf(
+            pdf_path=Path(args.pdf),
+            company_name=args.company,
+            ticker=args.ticker,
+            year=args.year,
+            replace_existing=args.replace
+        )
+        
+        print("\nIngestion Result:")
+        print(result)
+    else:
+        # Directory mode
+        results = pipeline.ingest_directory(
+            base_dir=Path(args.directory),
+            replace_existing=args.replace
+        )
+        
+        print(f"\nProcessed {len(results)} files")
     
-    print("Single PDF Ingestion Result:")
-    print(result)
-    
-    # Example 2: Bulk ingest from directory
-    # bulk_results = pipeline.ingest_directory(
-    #     base_dir=Path("data/annual_reports"),
-    #     replace_existing=False
-    # )
-    
-    # Example 3: Get statistics
-    stats = pipeline.get_ingestion_stats()
+    # Show final stats
     print("\nVector Store Statistics:")
+    stats = pipeline.get_ingestion_stats()
     print(f"Total chunks: {stats['total_chunks']}")
     print(f"Companies: {stats['total_companies']}")
-    print(f"Company-years: {stats['total_company_years']}")
-    print("\nCompanies in store:")
+    print(f"\nCompanies in store:")
     for company in stats['companies']:
         print(f"  {company['ticker']}: {company['years']}")

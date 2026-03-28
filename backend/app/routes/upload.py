@@ -14,7 +14,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # Expose pipeline at module level so tests can monkeypatch it.
 # Import in a try/except to avoid hard import-time failures when pipeline isn't ready.
 try:
-    from backend.app.services import pipeline
+    from app.services import pipeline
 except Exception:
     pipeline = None
 

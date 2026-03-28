@@ -441,7 +441,7 @@ This project is designed to run with **zero cost** using locally hosted tools. B
 
 | Phase | Scope | Status |
 |---|---|---|
-| **Phase 1** | Core backend: FastAPI, PDF ingestion, ChromaDB, embeddings | Planned |
+| **Phase 1** | Core backend: FastAPI, PDF ingestion, ChromaDB, embeddings | Completed |
 | **Phase 2** | RAG pipeline: chunking, retrieval, LLM integration, prompt templates | Planned |
 | **Phase 3** | React frontend: dashboard, filters, upload, charts | Planned |
 | **Phase 4** | Intelligence layer: recommendations, news feed, comparative analysis | Planned |
