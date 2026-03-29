@@ -35,7 +35,7 @@ class LLMService:
         if provider_lower != LLMProvider.OLLAMA.value:
             logger.warning("Only Ollama is supported. Falling back to Ollama (was: %s).", provider)
         self.provider = LLMProvider.OLLAMA
-        self.model = model or "mistral"
+        self.model = model or "glm-5:cloud"
         self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.client = self._initialize_client()
         logger.info("LLM service initialized: %s / %s", self.provider.value, self.model)
@@ -45,6 +45,15 @@ class LLMService:
         import requests
         s = requests.Session()
         return s
+
+    def is_available(self) -> bool:
+        """Check if Ollama server is available and responsive."""
+        try:
+            resp = self.client.get(f"{self.base_url}/api/tags", timeout=5)
+            return resp.status_code == 200
+        except Exception as e:
+            logger.warning("Ollama availability check failed: %s", e)
+            return False
 
     def generate(
         self,
@@ -85,7 +94,12 @@ class LLMService:
             resp.raise_for_status()
             result = resp.json()
             # Ollama returns a `response` or similar field depending on server version
-            answer = result.get("response") or result.get("output") or ""
+            answer = result.get("response") or result.get("output") or result.get("text") or ""
+            
+            # Log the response for debugging
+            if not answer:
+                logger.warning("Empty response from Ollama. Full response: %s", result)
+            
             if json_mode:
                 try:
                     parsed = json.loads(answer)
@@ -96,7 +110,16 @@ class LLMService:
             return {"answer": answer}
         except Exception as e:
             logger.error("Ollama generation failed: %s", e)
-            return {"answer": "Error: Could not generate response", "error": str(e)}
+            # Check if Ollama is available for better error message
+            if not self.is_available():
+                error_msg = f"Ollama server not accessible at {self.base_url}. Make sure Ollama is running: ollama serve"
+                logger.error(error_msg)
+                return {"answer": "Error: Ollama is not running", "error": error_msg}
+            else:
+                # Ollama is running but request failed
+                error_msg = f"Ollama API error: {str(e)}. Check that model '{self.model}' is installed: ollama pull {self.model}"
+                logger.error(error_msg)
+                return {"answer": "Error: Could not generate response", "error": error_msg}
 
     def generate_structured(
         self,

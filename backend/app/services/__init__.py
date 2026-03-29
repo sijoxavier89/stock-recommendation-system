@@ -51,4 +51,17 @@ if embedding_service is not None:
 else:
     pipeline = None
 
-__all__ = ["vector_store", "embedding_service", "pdf_processor", "pipeline", "VectorStore", "PDFProcessor"]
+# Initialize LLM service for RAG/recommendations
+try:
+    from .llm_service import LLMService
+    try:
+        llm_service = LLMService(provider="ollama", model="glm-5:cloud")
+        logger.info("LLM service initialized successfully")
+    except Exception as e:
+        logger.warning("LLMService initialization failed (LLM features unavailable): %s", e)
+        llm_service = None
+except Exception as e:
+    logger.warning("Could not import LLMService: %s", e)
+    llm_service = None
+
+__all__ = ["vector_store", "embedding_service", "pdf_processor", "pipeline", "llm_service", "VectorStore", "PDFProcessor"]
